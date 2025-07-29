@@ -35,7 +35,6 @@ EXCLUDED_PLUGINS = [
 EXCLUDED_THEMES = [
     "Avada",
     "Divi",
-    "ascend",
     "documentation-suburbia-child",
     "jolene",
     "sailing3",
