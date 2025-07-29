@@ -28,7 +28,6 @@ EXCLUDED_PLUGINS = [
     "newsletter-extensions",
     "pmpro-add-member-admin",
     "newsletter-reports",
-    "jetpack",
 ]
 
 # List premium themes to exclude
