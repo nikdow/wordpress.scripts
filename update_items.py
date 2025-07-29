@@ -60,13 +60,11 @@ class Item(ABC):
         if item in excluded_items:
             print(f"⏭ Skipping excluded item: {item}")
             return
-
         latest_info = self.get_latest_item(item)
         if not latest_info:
             return
-
         sleep(4)
-
+        print(f"current_version: {current_version}")
         try:
             latest_version = latest_info["version"]
             download_url = latest_info["download_link"]
