@@ -20,7 +20,6 @@ def update_fail2ban_whitelist(json, jail_name):
                  subprocess.run(['fail2ban-client', 'set', jail_name, 'addignoreip', ip], check=True)
              except subprocess.CalledProcessError as e:
                  print(f"Error whitelisting {ip}: {e}")
-    subprocess.run(['fail2ban-client', 'reload' ])
 # params and invoke
 json_url = 'https://jetpack.com/ips-v4.json'
 fail2ban_jail = 'wpxmlrpc'  # Replace with your jail name
