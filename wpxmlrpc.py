@@ -8,7 +8,7 @@ def get_ip(el):
     return el['ip_prefix']
 def write_jail(data, jail_name):
     separator = ", "
-    ignoreip = 'ignoreip = ' + separator.join(data) + '\n'
+    ignoreip = 'ignoreip = %(default/ignoreip)s ' + separator.join(data) + '\n'
     with open('/etc/fail2ban/jail.d/' + jail_name + '.local', 'r') as f:
         lines = f.readlines()
     with open('/etc/fail2ban/jail.d/' + jail_name + '.local', 'w') as f:
