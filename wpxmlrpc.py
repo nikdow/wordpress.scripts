@@ -10,7 +10,8 @@ def update_cloudfront_whitelist(json, jail_name):
     data = response.json()
     prefixes = data['prefixes']
     origin_facing = list(filter(is_origin_facing, prefixes))
-    for ip in origin_facing:
+    for stuff in origin_facing:
+        ip = stuff['ip_prefix']
         try:
             subprocess.run(['fail2ban-client', 'set', jail_name, 'addignoreip', ip], check=True)
         except subprocess.CalledProcessError as e:
