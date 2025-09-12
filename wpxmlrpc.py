@@ -20,11 +20,10 @@ def update_cloudfront_whitelist(json, jail_name):
 def update_fail2ban_whitelist(json, jail_name):
     response = requests.get(json)
     data = response.json()
+    separator = ", "
+    ignoreip = 'ignoreip = ' + separator.join(data) + '\n'
     with open('/etc/fail2ban/jail.d/' + jail_name + '.local', 'r') as f:
         lines = f.readlines()
-    ignoreip = 'ignoreip = '
-    for ip in data:
-        ignoreip += ip
     with open('/etc/fail2ban/jail.d/' + jail_name + '.local', 'w') as f:
         for line in lines:
             if line.startswith('ignoreip'):
