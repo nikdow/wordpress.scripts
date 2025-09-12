@@ -2,10 +2,15 @@
 import subprocess
 import requests
 
+def is_origin_facing(el):
+    return el['service'] == 'CLOUDFRONT_ORIGIN_FACING'
+
 def update_cloudfront_whitelist(json, jail_name):
     response = requests.get(json)
     data = response.json()
-    for ip in data["CLOUDFRONT_GLOBAL_IP_LIST"]:
+    prefixes = data['prefixes']
+    origin_facing = list(filter(is_origin_facing, prefixes))
+    for ip in origin_facing:
         try:
             subprocess.run(['fail2ban-client', 'set', jail_name, 'addignoreip', ip], check=True)
         except subprocess.CalledProcessError as e:
@@ -24,7 +29,7 @@ def update_fail2ban_whitelist(json, jail_name):
 json_url = 'https://jetpack.com/ips-v4.json'
 fail2ban_jail = 'wpxmlrpc'  # Replace with your jail name
 update_fail2ban_whitelist(json_url, fail2ban_jail)
-json_url = 'https://d7uri8nf7uskq.cloudfront.net/tools/list-cloudfront-ips'
+json_url = 'https://ip-ranges.amazonaws.com/ip-ranges.json'
 fail2ban_jail = 'cloudfront'
 update_cloudfront_whitelist(json_url, fail2ban_jail)
 subprocess.run(['fail2ban-client', 'reload' ])
