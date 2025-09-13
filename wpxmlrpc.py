@@ -14,6 +14,7 @@ def write_jail(data, jail_name):
     with open('/etc/fail2ban/jail.d/' + jail_name + '.local', 'w') as f:
         for line in lines:
             if line.startswith('ignoreip'):
+                f.write('# following line written by /etc/wpxmlrpc.py\n')
                 f.write(ignoreip)
             else:
                 f.write(line)
