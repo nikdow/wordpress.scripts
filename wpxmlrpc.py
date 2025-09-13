@@ -36,4 +36,6 @@ update_fail2ban_whitelist(json_url, fail2ban_jail)
 json_url = 'https://ip-ranges.amazonaws.com/ip-ranges.json'
 fail2ban_jail = 'cloudfront'
 update_cloudfront_whitelist(json_url, fail2ban_jail)
+fail2ban_jail = 'php-get-dos'
+update_cloudfront_whitelist(json_url, fail2ban_jail)
 subprocess.run(['fail2ban-client', 'restart' ])
