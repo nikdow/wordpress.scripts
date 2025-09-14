@@ -11,10 +11,14 @@ def write_jail(data, jail_name):
     ignoreip = 'ignoreip = %(default/ignoreip)s ' + separator.join(data) + '\n'
     with open('/etc/fail2ban/jail.d/' + jail_name + '.local', 'r') as f:
         lines = f.readlines()
+    foundcomment = False
     with open('/etc/fail2ban/jail.d/' + jail_name + '.local', 'w') as f:
         for line in lines:
+            if line.startswith('# following line'):
+                foundcomment = True
             if line.startswith('ignoreip'):
-                f.write('# following line written by /etc/wpxmlrpc.py\n')
+                if not foundcomment:
+                    f.write('# following line written by /etc/wpxmlrpc.py\n')
                 f.write(ignoreip)
             else:
                 f.write(line)
