@@ -43,4 +43,6 @@ fail2ban_jail = 'cloudfront'
 update_cloudfront_whitelist(json_url, fail2ban_jail)
 fail2ban_jail = 'php-get-dos'
 update_cloudfront_whitelist(json_url, fail2ban_jail)
+fail2ban_jail = 'botbystatus'
+update_cloudfront_whitelist(json_url, fail2ban_jail)
 subprocess.run(['fail2ban-client', 'restart' ])
