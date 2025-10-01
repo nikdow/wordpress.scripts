@@ -193,7 +193,7 @@ def upgradeWpDir(dir):
 
     subprocess.getstatusoutput("rm -rf *.tar.gz")
 
-    cmd = "service php8.2-fpm reload"
+    cmd = "service php8.3-fpm reload"
     print(cmd)
     subprocess.getstatusoutput(cmd)
 
