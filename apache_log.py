@@ -4,6 +4,7 @@ import sys
 import csv
 import gzip
 import shutil
+import os
 
 pattern = r'([a-zA-z0-9\-_\.]+)\:(\d+)\s([\d\.]+)\s(\d+)\s\[(\d+)\/([A-zA-z]{3})\/(\d{4}):(\d{2}):(\d{2}):(\d{2})\s[\+]?[\d]+\]\s"(GET|POST|PUT)\s([^\s]+)\sHTTP\/([\d\.]+)"\s(\d+)\s(\d+)\s(\d+)\s"([^"]+)"\s"([^"]+)"'
 
