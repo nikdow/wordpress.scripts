@@ -27,4 +27,4 @@ with open(filein+'.csv', 'rb') as f_in:
     with gzip.open(filein+'.csv.gzip', 'wb') as f_out:
         shutil.copyfileobj(f_in, f_out)
 os.remove(filein+'.csv')
-print (count + ', ' + filein+'.csv.zip')
+print (count)
