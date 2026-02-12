@@ -24,7 +24,7 @@ def read_file(filename):
 filein = sys.argv[1]
 count = read_file(filein)
 with open(filein+'.csv', 'rb') as f_in:
-    with gzip.open(filein+'.csv.gzip', 'wb') as f_out:
+    with gzip.open(filein+'.csv.gz', 'wb') as f_out:
         shutil.copyfileobj(f_in, f_out)
 os.remove(filein+'.csv')
 print (count)
