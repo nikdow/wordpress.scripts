@@ -2,7 +2,12 @@
 #
 # Upgrade WP core to the latest minor version
 #
-# backup changes to this file by copying it into https://doc.cbdweb.net/documentation/technical/word-press/combined-wp-core/
+# This script started failing because WP imposed timed limits
+# function is replaced by composer johnpbloch/wordpress-core
+# see cron job cd /home/lamp/wordpress && su composer -c "composer update"
+#
+# need to handle major version upgrades by hand (e.g. 7.0 -> 7.1)
+#
 
 import re
 from bs4 import BeautifulSoup
