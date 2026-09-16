@@ -2,6 +2,7 @@
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime
 import requests
 from time import sleep
 import zipfile
@@ -122,6 +123,40 @@ def verdict(results):
     if updated:
         return "OK — %d updated" % updated, 0
     return "OK — nothing to do", 0
+
+
+PROGRAM = "wp-update-items"
+KIND_LABEL = {"plugin": "plugins", "theme": "themes"}
+
+
+def render(results, log_path):
+    """The compact block written to stdout — i.e. what lands in root mail."""
+    lines = ["%s  %s" % (PROGRAM, datetime.now().astimezone()
+                         .strftime("%Y-%m-%d %H:%M:%S %z"))]
+
+    attention = [x for x in results if x.outcome in ATTENTION_OUTCOMES]
+    if attention:
+        lines.append("")
+        lines.append("NEEDS ATTENTION")
+        for x in attention:
+            lines.append("  %-15s %-20s %s" % (x.outcome, x.slug, x.detail))
+
+    counts = summarise(results)
+    lines.append("")
+    for kind in ("plugin", "theme"):
+        by_outcome = counts.get(kind, {})
+        skipped = sum(n for o, n in by_outcome.items() if o in SKIP_OUTCOMES)
+        failed = sum(n for o, n in by_outcome.items() if o in FAILURE_OUTCOMES)
+        prefix = "SUMMARY  " if kind == "plugin" else "         "
+        # %-9s pads after the colon so "plugins: " and "themes:  " align.
+        lines.append("%s%-9s%d current, %d updated, %d failed, %d skipped" % (
+            prefix, KIND_LABEL[kind] + ":",
+            by_outcome.get(CURRENT, 0), by_outcome.get(UPDATED, 0),
+            failed, skipped))
+
+    text, _ = verdict(results)
+    lines.append("         verdict: %s — detail: %s" % (text, log_path))
+    return "\n".join(lines)
 
 
 PLUGIN_DIR = "/home/lamp/wordpress/plugins"

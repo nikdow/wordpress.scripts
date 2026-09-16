@@ -138,3 +138,40 @@ class TestVerdict:
     def test_unknown_version_does_not_fail_the_run(self):
         _, code = ui.verdict([r(ui.UNKNOWN_VERSION)])
         assert code == 0
+
+
+LOG = "/var/log/wp-update-items.log"
+
+
+class TestRender:
+    def test_clean_run_omits_attention_block(self):
+        out = ui.render([r(ui.CURRENT), r(ui.CURRENT, kind="theme")], LOG)
+        assert "NEEDS ATTENTION" not in out
+        assert "verdict: OK — nothing to do" in out
+        assert LOG in out
+
+    def test_failures_appear_in_attention_block(self):
+        results = [
+            r(ui.FAILED_VERIFY, slug="woocommerce",
+              installed="9.1.2", latest="9.2.0",
+              detail="9.1.2 on disk, expected 9.2.0"),
+            r(ui.CURRENT, slug="akismet"),
+        ]
+        out = ui.render(results, LOG)
+        assert "NEEDS ATTENTION" in out
+        assert "woocommerce" in out
+        assert "9.1.2 on disk, expected 9.2.0" in out
+        assert "akismet" not in out          # healthy items stay out of stdout
+        assert "verdict: FAILED (1 item)" in out
+
+    def test_summary_line_per_kind(self):
+        results = [r(ui.CURRENT), r(ui.UPDATED), r(ui.SKIPPED_GIT),
+                   r(ui.CURRENT, kind="theme")]
+        out = ui.render(results, LOG)
+        assert "plugins: 1 current, 1 updated, 0 failed, 1 skipped" in out
+        assert "themes:  1 current, 0 updated, 0 failed, 0 skipped" in out
+
+    def test_not_on_wporg_shown_but_run_still_ok(self):
+        out = ui.render([r(ui.NOT_ON_WPORG, slug="sailing4")], LOG)
+        assert "sailing4" in out
+        assert "verdict: OK" in out
