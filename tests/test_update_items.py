@@ -26,3 +26,34 @@ class TestReadHeader:
 
     def test_returns_none_when_file_missing(self, store):
         assert ui.read_header(os.path.join(store, "nope.php"), "Version") is None
+
+
+class TestInstalledPluginVersion:
+    def test_prefers_php_header_over_stable_tag(self, make_plugin):
+        # This is the stable-tag trap: header 9.2.0, readme lags at 9.1.0.
+        path = make_plugin("woocommerce", header_version="9.2.0", stable_tag="9.1.0")
+        assert ui.installed_plugin_version(path) == "9.2.0"
+
+    def test_falls_back_to_stable_tag_when_no_php_header(self, make_plugin):
+        path = make_plugin("oldplugin", header_version=None, stable_tag="1.4.2")
+        assert ui.installed_plugin_version(path) == "1.4.2"
+
+    def test_finds_header_in_non_matching_filename(self, store, make_plugin):
+        path = make_plugin("weird", header_version=None, stable_tag=None)
+        with open(os.path.join(path, "bootstrap.php"), "w") as f:
+            f.write("<?php\n/*\n * Plugin Name: Weird\n * Version: 3.1\n */\n")
+        assert ui.installed_plugin_version(path) == "3.1"
+
+    def test_returns_none_when_nothing_readable(self, make_plugin):
+        path = make_plugin("empty", header_version=None, stable_tag=None)
+        assert ui.installed_plugin_version(path) is None
+
+
+class TestInstalledThemeVersion:
+    def test_reads_style_css(self, make_theme):
+        path = make_theme("twentytwentytwo", version="2.2")
+        assert ui.installed_theme_version(path) == "2.2"
+
+    def test_returns_none_without_style_css(self, make_theme):
+        path = make_theme("brokentheme", version=None)
+        assert ui.installed_theme_version(path) is None

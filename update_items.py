@@ -24,6 +24,42 @@ def read_header(path, field):
     return m.group(1).strip() if m else None
 
 
+def installed_plugin_version(plugin_path):
+    """Plugin header `Version:` first — it is what WordPress itself reports.
+
+    Falls back to readme.txt `Stable tag:`, which is what the old script used
+    exclusively and which can lag the actual shipped version.
+    """
+    slug = os.path.basename(plugin_path)
+    candidates = [os.path.join(plugin_path, slug + ".php")]
+    try:
+        candidates += sorted(
+            os.path.join(plugin_path, f)
+            for f in os.listdir(plugin_path) if f.endswith(".php")
+        )
+    except OSError:
+        return None
+
+    for php in candidates:
+        if os.path.isfile(php) and read_header(php, "Plugin Name"):
+            version = read_header(php, "Version")
+            if version:
+                return version
+
+    for readme in ("readme.txt", "README.txt"):
+        rp = os.path.join(plugin_path, readme)
+        if os.path.isfile(rp):
+            version = read_header(rp, "Stable tag")
+            if version:
+                return version
+    return None
+
+
+def installed_theme_version(theme_path):
+    style = os.path.join(theme_path, "style.css")
+    return read_header(style, "Version") if os.path.isfile(style) else None
+
+
 PLUGIN_DIR = "/home/lamp/wordpress/plugins"
 THEME_DIR = "/home/lamp/wordpress/themes"
 
