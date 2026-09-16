@@ -292,3 +292,55 @@ class TestLookups:
         monkeypatch.setattr(ui, "fetch_json", fake)
         ui.latest_plugin("odd name")
         assert "odd%20name" in seen["url"]
+
+
+import zipfile
+
+
+def make_zip(path, slug, version):
+    """A plugin zip shaped like wordpress.org ships them."""
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr("%s/%s.php" % (slug, slug),
+                   "<?php\n/*\n * Plugin Name: %s\n * Version: %s\n */\n" % (slug, version))
+
+
+class TestApplyZip:
+    def test_extracts_and_verifies(self, tmp_path, store, make_plugin):
+        make_plugin("akismet", header_version="5.0.0", stable_tag=None)
+        zip_path = str(tmp_path / "a.zip")
+        make_zip(zip_path, "akismet", "5.3.1")
+
+        outcome, detail = ui.apply_zip(zip_path, store, "akismet", "5.3.1",
+                                       ui.installed_plugin_version)
+        assert outcome == ui.UPDATED
+        assert ui.installed_plugin_version(os.path.join(store, "akismet")) == "5.3.1"
+
+    def test_missing_top_level_dir_is_failed_extract(self, tmp_path, store, make_plugin):
+        make_plugin("akismet", header_version="5.0.0", stable_tag=None)
+        zip_path = str(tmp_path / "a.zip")
+        make_zip(zip_path, "wrong-slug", "5.3.1")
+
+        outcome, detail = ui.apply_zip(zip_path, store, "akismet", "5.3.1",
+                                       ui.installed_plugin_version)
+        assert outcome == ui.FAILED_EXTRACT
+        assert "wrong-slug" in detail or "akismet" in detail
+
+    def test_version_not_changing_is_failed_verify(self, tmp_path, store, make_plugin):
+        make_plugin("akismet", header_version="5.0.0", stable_tag=None)
+        zip_path = str(tmp_path / "a.zip")
+        make_zip(zip_path, "akismet", "5.0.0")      # zip ships the OLD version
+
+        outcome, detail = ui.apply_zip(zip_path, store, "akismet", "5.3.1",
+                                       ui.installed_plugin_version)
+        assert outcome == ui.FAILED_VERIFY
+        assert "5.0.0" in detail and "5.3.1" in detail
+
+    def test_corrupt_zip_is_failed_extract(self, tmp_path, store, make_plugin):
+        make_plugin("akismet", header_version="5.0.0", stable_tag=None)
+        zip_path = str(tmp_path / "bad.zip")
+        with open(zip_path, "wb") as f:
+            f.write(b"not a zip file at all")
+
+        outcome, detail = ui.apply_zip(zip_path, store, "akismet", "5.3.1",
+                                       ui.installed_plugin_version)
+        assert outcome == ui.FAILED_EXTRACT

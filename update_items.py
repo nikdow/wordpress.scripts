@@ -247,6 +247,32 @@ def latest_theme(slug):
     return _extract(fetch_json(THEME_API + "?" + query), slug)
 
 
+def apply_zip(zip_path, directory, slug, expected_version, version_reader):
+    """Extract a downloaded zip and prove the result. Returns (outcome, detail).
+
+    Verification is the whole point: the old script printed success straight
+    after extractall() without checking that anything landed.
+    """
+    try:
+        with zipfile.ZipFile(zip_path, "r") as archive:
+            tops = {name.split("/")[0] for name in archive.namelist() if name.strip("/")}
+            if slug not in tops:
+                return FAILED_EXTRACT, ("zip top-level is %s, expected %s"
+                                        % (sorted(tops) or "empty", slug))
+            archive.extractall(directory)
+    except (zipfile.BadZipFile, OSError) as exc:
+        return FAILED_EXTRACT, str(exc)
+
+    target = os.path.join(directory, slug)
+    if not os.path.isdir(target):
+        return FAILED_EXTRACT, "%s not present after extraction" % target
+
+    on_disk = version_reader(target)
+    if on_disk != expected_version:
+        return FAILED_VERIFY, "%s on disk, expected %s" % (on_disk or "?", expected_version)
+    return UPDATED, "%s installed" % expected_version
+
+
 PLUGIN_DIR = "/home/lamp/wordpress/plugins"
 THEME_DIR = "/home/lamp/wordpress/themes"
 
