@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import re
+from dataclasses import dataclass
 import requests
 from time import sleep
 import zipfile
@@ -75,6 +76,52 @@ def compare_versions(latest, current):
         return "newer" if Version(latest) > Version(current) else "not-newer"
     except InvalidVersion:
         return "invalid"
+
+
+CURRENT          = "current"
+UPDATED          = "updated"
+SKIPPED_GIT      = "skipped-git"
+SKIPPED_EXCLUDED = "skipped-excluded"
+NOT_ON_WPORG     = "not-on-wporg"
+UNKNOWN_VERSION  = "unknown-version"
+FAILED_LOOKUP    = "failed-lookup"
+FAILED_DOWNLOAD  = "failed-download"
+FAILED_EXTRACT   = "failed-extract"
+FAILED_VERIFY    = "failed-verify"
+
+FAILURE_OUTCOMES   = {FAILED_LOOKUP, FAILED_DOWNLOAD, FAILED_EXTRACT, FAILED_VERIFY}
+ATTENTION_OUTCOMES = FAILURE_OUTCOMES | {UNKNOWN_VERSION, NOT_ON_WPORG}
+SKIP_OUTCOMES      = {SKIPPED_GIT, SKIPPED_EXCLUDED}
+
+
+@dataclass
+class Result:
+    kind: str
+    slug: str
+    outcome: str
+    installed: str = None
+    latest: str = None
+    detail: str = ""
+
+
+def summarise(results):
+    """{kind: {outcome: count}}"""
+    counts = {}
+    for item in results:
+        counts.setdefault(item.kind, {})
+        counts[item.kind][item.outcome] = counts[item.kind].get(item.outcome, 0) + 1
+    return counts
+
+
+def verdict(results):
+    """Return (text, exit_code). 0 = all good, 1 = something failed."""
+    failed = sum(1 for x in results if x.outcome in FAILURE_OUTCOMES)
+    updated = sum(1 for x in results if x.outcome == UPDATED)
+    if failed:
+        return "FAILED (%d item%s)" % (failed, "" if failed == 1 else "s"), 1
+    if updated:
+        return "OK — %d updated" % updated, 0
+    return "OK — nothing to do", 0
 
 
 PLUGIN_DIR = "/home/lamp/wordpress/plugins"

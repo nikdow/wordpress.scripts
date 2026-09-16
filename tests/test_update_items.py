@@ -88,3 +88,53 @@ class TestCompareVersions:
     def test_none_is_invalid(self):
         assert ui.compare_versions("1.0.0", None) == "invalid"
         assert ui.compare_versions(None, "1.0.0") == "invalid"
+
+
+def r(outcome, kind="plugin", slug="x", **kw):
+    return ui.Result(kind=kind, slug=slug, outcome=outcome, **kw)
+
+
+class TestSummarise:
+    def test_counts_by_kind_and_outcome(self):
+        results = [
+            r(ui.CURRENT), r(ui.CURRENT),
+            r(ui.UPDATED),
+            r(ui.SKIPPED_GIT),
+            r(ui.CURRENT, kind="theme"),
+        ]
+        counts = ui.summarise(results)
+        assert counts["plugin"][ui.CURRENT] == 2
+        assert counts["plugin"][ui.UPDATED] == 1
+        assert counts["plugin"][ui.SKIPPED_GIT] == 1
+        assert counts["theme"][ui.CURRENT] == 1
+
+
+class TestVerdict:
+    def test_clean_noop_is_exit_zero(self):
+        text, code = ui.verdict([r(ui.CURRENT), r(ui.SKIPPED_EXCLUDED)])
+        assert code == 0
+        assert "nothing to do" in text
+
+    def test_successful_updates_are_exit_zero(self):
+        text, code = ui.verdict([r(ui.UPDATED), r(ui.CURRENT)])
+        assert code == 0
+        assert "1 updated" in text
+
+    def test_any_failure_is_exit_one(self):
+        text, code = ui.verdict([r(ui.CURRENT), r(ui.FAILED_VERIFY)])
+        assert code == 1
+        assert "FAILED" in text
+
+    def test_all_four_failure_kinds_count(self):
+        for outcome in (ui.FAILED_LOOKUP, ui.FAILED_DOWNLOAD,
+                        ui.FAILED_EXTRACT, ui.FAILED_VERIFY):
+            _, code = ui.verdict([r(outcome)])
+            assert code == 1, outcome
+
+    def test_not_on_wporg_does_not_fail_the_run(self):
+        _, code = ui.verdict([r(ui.NOT_ON_WPORG), r(ui.CURRENT)])
+        assert code == 0
+
+    def test_unknown_version_does_not_fail_the_run(self):
+        _, code = ui.verdict([r(ui.UNKNOWN_VERSION)])
+        assert code == 0
