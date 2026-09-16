@@ -344,3 +344,31 @@ class TestApplyZip:
         outcome, detail = ui.apply_zip(zip_path, store, "akismet", "5.3.1",
                                        ui.installed_plugin_version)
         assert outcome == ui.FAILED_EXTRACT
+
+
+class TestClassifyItem:
+    def test_git_directory_is_skipped(self, store, make_plugin):
+        path = make_plugin("membero-allow-empty-email")
+        os.makedirs(os.path.join(path, ".git"))
+        result = ui.classify_item(store, "membero-allow-empty-email", "plugin",
+                                  [], ui.installed_plugin_version)
+        assert result.outcome == ui.SKIPPED_GIT
+
+    def test_excluded_is_skipped(self, store, make_plugin):
+        make_plugin("wp-mail-smtp-pro")
+        result = ui.classify_item(store, "wp-mail-smtp-pro", "plugin",
+                                  ["wp-mail-smtp-pro"], ui.installed_plugin_version)
+        assert result.outcome == ui.SKIPPED_EXCLUDED
+
+    def test_no_readable_version_is_unknown(self, store, make_plugin):
+        make_plugin("mystery", header_version=None, stable_tag=None)
+        result = ui.classify_item(store, "mystery", "plugin", [],
+                                  ui.installed_plugin_version)
+        assert result.outcome == ui.UNKNOWN_VERSION
+
+    def test_git_check_precedes_version_check(self, store, make_plugin):
+        path = make_plugin("inhouse", header_version=None, stable_tag=None)
+        os.makedirs(os.path.join(path, ".git"))
+        result = ui.classify_item(store, "inhouse", "plugin", [],
+                                  ui.installed_plugin_version)
+        assert result.outcome == ui.SKIPPED_GIT

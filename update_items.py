@@ -273,6 +273,29 @@ def apply_zip(zip_path, directory, slug, expected_version, version_reader):
     return UPDATED, "%s installed" % expected_version
 
 
+def classify_item(directory, slug, kind, excluded, version_reader):
+    """Decide an item's outcome without doing any network work.
+
+    Returns a Result. An outcome of None means "keep going" — the caller
+    performs the lookup and the update.
+    """
+    path = os.path.join(directory, slug)
+
+    if os.path.exists(os.path.join(path, ".git")):
+        return Result(kind=kind, slug=slug, outcome=SKIPPED_GIT,
+                      detail="in-house, git-managed")
+    if slug in excluded:
+        return Result(kind=kind, slug=slug, outcome=SKIPPED_EXCLUDED,
+                      detail="premium — never auto-updated")
+
+    installed = version_reader(path)
+    if not installed:
+        return Result(kind=kind, slug=slug, outcome=UNKNOWN_VERSION,
+                      detail="no readable version in %s" % path)
+
+    return Result(kind=kind, slug=slug, outcome=None, installed=installed)
+
+
 PLUGIN_DIR = "/home/lamp/wordpress/plugins"
 THEME_DIR = "/home/lamp/wordpress/themes"
 
