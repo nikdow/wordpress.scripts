@@ -1,11 +1,27 @@
 #!/usr/bin/env python3
 import os
+import re
 import requests
 from time import sleep
 import zipfile
 from packaging.version import Version
 from abc import ABC, abstractmethod
 from bs4 import BeautifulSoup
+
+
+def read_header(path, field):
+    """Pull a `Field: value` header out of the first 8KB of a file.
+
+    Ported from check_updates.py — the character class handles the
+    ` * `, `#` and `@` prefixes found in PHP and CSS comment headers.
+    """
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            head = f.read(8192)
+    except OSError:
+        return None
+    m = re.search(r"^[ \t/*#@]*%s:\s*(.+)$" % re.escape(field), head, re.I | re.M)
+    return m.group(1).strip() if m else None
 
 
 PLUGIN_DIR = "/home/lamp/wordpress/plugins"
