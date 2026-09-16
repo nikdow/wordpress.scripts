@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
+import json
 import os
 import re
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime
 import requests
@@ -157,6 +162,60 @@ def render(results, log_path):
     text, _ = verdict(results)
     lines.append("         verdict: %s — detail: %s" % (text, log_path))
     return "\n".join(lines)
+
+
+USER_AGENT = "cbdweb-update-items/2.0 (+aws05 shared wordpress store)"
+BACKOFF_SECONDS = [16, 64]      # one initial attempt plus these two retries
+HTTP_TIMEOUT = 20
+
+
+class NotOnWpOrg(Exception):
+    """The slug is not published on wordpress.org (HTTP 404)."""
+
+
+class LookupFailed(Exception):
+    """The lookup could not be completed (network, 429 after retries, 5xx)."""
+
+
+def _urlopen_json(url, timeout):
+    """Isolated for testing — monkeypatched in the unit tests."""
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8", "replace"))
+
+
+def fetch_json(url, *, attempts=3, sleeper=time.sleep):
+    """GET and parse JSON.
+
+    Raises NotOnWpOrg on 404 (no retry — the answer will not change) and
+    LookupFailed on anything else once retries are exhausted.
+    """
+    last = None
+    for attempt in range(attempts):
+        try:
+            return _urlopen_json(url, HTTP_TIMEOUT)
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise NotOnWpOrg(url) from exc
+            last = exc
+            if exc.code == 429:
+                retry_after = None
+                try:
+                    retry_after = int(exc.headers.get("Retry-After", ""))
+                except (TypeError, ValueError):
+                    retry_after = None
+                delay = retry_after if retry_after is not None else \
+                    BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+            else:
+                delay = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+        except (urllib.error.URLError, ValueError, TimeoutError, OSError) as exc:
+            last = exc
+            delay = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+
+        if attempt < attempts - 1:
+            sleeper(delay)
+
+    raise LookupFailed("%s: %s" % (url, last))
 
 
 PLUGIN_DIR = "/home/lamp/wordpress/plugins"

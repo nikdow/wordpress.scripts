@@ -175,3 +175,74 @@ class TestRender:
         out = ui.render([r(ui.NOT_ON_WPORG, slug="sailing4")], LOG)
         assert "sailing4" in out
         assert "verdict: OK" in out
+
+
+import io
+import urllib.error
+
+import pytest
+
+
+def http_error(code, headers=None):
+    return urllib.error.HTTPError(
+        "http://x", code, "err", headers or {}, io.BytesIO(b""))
+
+
+class TestFetchJson:
+    def test_returns_parsed_json(self, monkeypatch):
+        monkeypatch.setattr(ui, "_urlopen_json", lambda url, timeout: {"version": "1.0"})
+        assert ui.fetch_json("http://x") == {"version": "1.0"}
+
+    def test_404_raises_not_on_wporg(self, monkeypatch):
+        def boom(url, timeout):
+            raise http_error(404)
+        monkeypatch.setattr(ui, "_urlopen_json", boom)
+        with pytest.raises(ui.NotOnWpOrg):
+            ui.fetch_json("http://x")
+
+    def test_404_does_not_retry(self, monkeypatch):
+        calls = []
+        def boom(url, timeout):
+            calls.append(1)
+            raise http_error(404)
+        monkeypatch.setattr(ui, "_urlopen_json", boom)
+        with pytest.raises(ui.NotOnWpOrg):
+            ui.fetch_json("http://x")
+        assert len(calls) == 1
+
+    def test_429_retries_then_fails(self, monkeypatch):
+        calls, slept = [], []
+        def boom(url, timeout):
+            calls.append(1)
+            raise http_error(429)
+        monkeypatch.setattr(ui, "_urlopen_json", boom)
+        with pytest.raises(ui.LookupFailed):
+            ui.fetch_json("http://x", sleeper=slept.append)
+        assert len(calls) == 3           # one attempt plus two retries
+        assert slept == [16, 64]
+
+    def test_429_honours_retry_after(self, monkeypatch):
+        slept = []
+        def boom(url, timeout):
+            raise http_error(429, {"Retry-After": "7"})
+        monkeypatch.setattr(ui, "_urlopen_json", boom)
+        with pytest.raises(ui.LookupFailed):
+            ui.fetch_json("http://x", sleeper=slept.append)
+        assert slept == [7, 7]
+
+    def test_429_then_success(self, monkeypatch):
+        state = {"n": 0}
+        def flaky(url, timeout):
+            state["n"] += 1
+            if state["n"] == 1:
+                raise http_error(429)
+            return {"version": "2.0"}
+        monkeypatch.setattr(ui, "_urlopen_json", flaky)
+        assert ui.fetch_json("http://x", sleeper=lambda s: None) == {"version": "2.0"}
+
+    def test_500_retries_then_lookup_failed(self, monkeypatch):
+        def boom(url, timeout):
+            raise http_error(500)
+        monkeypatch.setattr(ui, "_urlopen_json", boom)
+        with pytest.raises(ui.LookupFailed):
+            ui.fetch_json("http://x", sleeper=lambda s: None)
