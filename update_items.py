@@ -218,6 +218,35 @@ def fetch_json(url, *, attempts=3, sleeper=time.sleep):
     raise LookupFailed("%s: %s" % (url, last))
 
 
+PLUGIN_API = "https://api.wordpress.org/plugins/info/1.0/%s.json"
+THEME_API = "https://api.wordpress.org/themes/info/1.1/"
+
+
+def _extract(data, slug):
+    """Pull (version, download_link) out of a wp.org payload."""
+    if not isinstance(data, dict) or data.get("error"):
+        raise NotOnWpOrg(slug)
+    version = data.get("version")
+    link = data.get("download_link")
+    if not version or not link:
+        raise LookupFailed("%s: response missing version or download_link" % slug)
+    return version, link
+
+
+def latest_plugin(slug):
+    return _extract(fetch_json(PLUGIN_API % urllib.parse.quote(slug)), slug)
+
+
+def latest_theme(slug):
+    # Verified 2026-09-16: version and download_link are both returned by
+    # default; request[fields][...] is unnecessary.
+    query = urllib.parse.urlencode({
+        "action": "theme_information",
+        "request[slug]": slug,
+    })
+    return _extract(fetch_json(THEME_API + "?" + query), slug)
+
+
 PLUGIN_DIR = "/home/lamp/wordpress/plugins"
 THEME_DIR = "/home/lamp/wordpress/themes"
 

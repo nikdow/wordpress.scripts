@@ -246,3 +246,49 @@ class TestFetchJson:
         monkeypatch.setattr(ui, "_urlopen_json", boom)
         with pytest.raises(ui.LookupFailed):
             ui.fetch_json("http://x", sleeper=lambda s: None)
+
+
+class TestLookups:
+    def test_plugin_lookup_builds_url_and_extracts_fields(self, monkeypatch):
+        seen = {}
+        def fake(url, **kw):
+            seen["url"] = url
+            return {"version": "5.3.1",
+                    "download_link": "https://downloads.wordpress.org/plugin/akismet.5.3.1.zip"}
+        monkeypatch.setattr(ui, "fetch_json", fake)
+        version, link = ui.latest_plugin("akismet")
+        assert version == "5.3.1"
+        assert link.endswith("akismet.5.3.1.zip")
+        assert seen["url"] == "https://api.wordpress.org/plugins/info/1.0/akismet.json"
+
+    def test_theme_lookup_builds_url_and_extracts_fields(self, monkeypatch):
+        seen = {}
+        def fake(url, **kw):
+            seen["url"] = url
+            return {"version": "2.2",
+                    "download_link": "https://downloads.wordpress.org/theme/twentytwentytwo.2.2.zip"}
+        monkeypatch.setattr(ui, "fetch_json", fake)
+        version, link = ui.latest_theme("twentytwentytwo")
+        assert version == "2.2"
+        assert link.endswith("twentytwentytwo.2.2.zip")
+        assert "action=theme_information" in seen["url"]
+        assert "request%5Bslug%5D=twentytwentytwo" in seen["url"]
+
+    def test_plugin_error_body_raises_not_on_wporg(self, monkeypatch):
+        monkeypatch.setattr(ui, "fetch_json", lambda url, **kw: {"error": "Plugin not found."})
+        with pytest.raises(ui.NotOnWpOrg):
+            ui.latest_plugin("nope")
+
+    def test_missing_download_link_raises_lookup_failed(self, monkeypatch):
+        monkeypatch.setattr(ui, "fetch_json", lambda url, **kw: {"version": "1.0"})
+        with pytest.raises(ui.LookupFailed):
+            ui.latest_plugin("weird")
+
+    def test_slug_is_url_quoted(self, monkeypatch):
+        seen = {}
+        def fake(url, **kw):
+            seen["url"] = url
+            return {"version": "1.0", "download_link": "http://x/y.zip"}
+        monkeypatch.setattr(ui, "fetch_json", fake)
+        ui.latest_plugin("odd name")
+        assert "odd%20name" in seen["url"]
