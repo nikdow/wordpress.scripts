@@ -372,3 +372,47 @@ class TestClassifyItem:
         result = ui.classify_item(store, "inhouse", "plugin", [],
                                   ui.installed_plugin_version)
         assert result.outcome == ui.SKIPPED_GIT
+
+
+class TestProcessStoreIsolation:
+    def test_one_item_exploding_does_not_stop_the_run(
+            self, monkeypatch, store, make_plugin):
+        make_plugin("aaa", header_version="1.0.0")
+        make_plugin("bbb", header_version="1.0.0")
+        make_plugin("ccc", header_version="1.0.0")
+
+        def lookup(slug):
+            if slug == "bbb":
+                raise RuntimeError("simulated explosion")
+            return "1.0.0", "http://example.invalid/%s.zip" % slug
+
+        monkeypatch.setattr(ui.time, "sleep", lambda s: None)
+        results = ui.process_store(store, "plugin", [],
+                                   ui.installed_plugin_version, lookup,
+                                   dry_run=True)
+
+        assert len(results) == 3, "run must complete all three items"
+        by_slug = {x.slug: x for x in results}
+        assert by_slug["aaa"].outcome == ui.CURRENT
+        assert by_slug["ccc"].outcome == ui.CURRENT
+        assert by_slug["bbb"].outcome == ui.FAILED_LOOKUP
+        assert "RuntimeError" in by_slug["bbb"].detail
+
+    def test_not_on_wporg_is_isolated_too(self, monkeypatch, store, make_plugin):
+        make_plugin("aaa", header_version="1.0.0")
+        make_plugin("premium-thing", header_version="1.0.0")
+
+        def lookup(slug):
+            if slug == "premium-thing":
+                raise ui.NotOnWpOrg(slug)
+            return "1.0.0", "http://example.invalid/a.zip"
+
+        monkeypatch.setattr(ui.time, "sleep", lambda s: None)
+        results = ui.process_store(store, "plugin", [],
+                                   ui.installed_plugin_version, lookup,
+                                   dry_run=True)
+
+        by_slug = {x.slug: x for x in results}
+        assert by_slug["premium-thing"].outcome == ui.NOT_ON_WPORG
+        assert by_slug["aaa"].outcome == ui.CURRENT
+        assert ui.verdict(results)[1] == 0, "not-on-wporg must not fail the run"

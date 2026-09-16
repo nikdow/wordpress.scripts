@@ -1,19 +1,30 @@
 #!/usr/bin/env python3
+"""Update the shared WordPress plugin and theme store on aws05.
+
+Runs as root from cron at 06:13 and 18:13. Every item scanned gets exactly one
+recorded outcome, every applied update is verified on disk before it is claimed,
+and the exit code reports whether anything went wrong (0 ok, 1 partial, 2 fatal).
+
+stdout carries a compact summary — that is what lands in root mail. Full
+per-item detail goes to the log file (--log, default /var/log/wp-update-items.log).
+"""
+import argparse
 import json
+import logging
 import os
 import re
+import shutil
+import sys
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zipfile
 from dataclasses import dataclass
 from datetime import datetime
-import requests
-from time import sleep
-import zipfile
+
 from packaging.version import InvalidVersion, Version
-from abc import ABC, abstractmethod
-from bs4 import BeautifulSoup
 
 
 def read_header(path, field):
@@ -338,157 +349,139 @@ EXCLUDED_THEMES = [
 ]
 
 
-class Item(ABC):
-    @abstractmethod
-    def get_latest_item(self, name):
-        """Fetch the latest version information."""
+LOOKUP_THROTTLE = 4       # seconds before every wp.org lookup
+DOWNLOAD_THROTTLE = 3     # seconds before every zip download
+DEFAULT_LOG = "/var/log/wp-update-items.log"
 
-    def update_item(self, item, current_version, excluded_items, directory):
-        """Common update logic for plugins and themes."""
-        if item in excluded_items:
-            print(f"⏭ Skipping excluded item: {item}")
-            return
+log = logging.getLogger(PROGRAM)
 
-        latest_info = self.get_latest_item(item)
-        if not latest_info:
-            return
 
-        sleep(4)
-
-        try:
-            latest_version = latest_info["version"]
-            download_url = latest_info["download_link"]
-            if (
-                current_version == "trunk"
-                or latest_version == "trunk"
-                or Version(latest_version) > Version(current_version)
-            ) and download_url:
-                print(
-                    f"⬆ Updating {item}: {current_version} → {latest_version}"
-                )
-                sleep(3)
-                self.download_and_extract(download_url, directory, item)
-            else:
-                print(f"⛔ {item} is up to date ({current_version})")
-        except Exception:
-            print(f"⚠️  Invalid version for {item}: {latest_version}")
-
-    def update(self, directory, excluded_items):
-        """Update items by checking their versions and downloading updates."""
-        installed_items = self.get_installed_versions(directory)
-        for item, current_version in installed_items.items():
-            self.update_item(item, current_version, excluded_items, directory)
-
-    def get_readme_file_path(self, plugin_path):
-        """Get the path to the readme file."""
-        readme_files = ("readme.txt", "README.txt")
-
-        if os.path.isdir(plugin_path):
-            for readme_file in readme_files:
-                file_path = os.path.join(plugin_path, readme_file)
-                if os.path.isfile(file_path):
-                    return file_path
+def setup_logging(log_path):
+    """Full detail to the log file. stdout gets only the final summary block,
+    printed directly — a redirect would put everything in the file and leave
+    root mail empty, losing the verdict."""
+    log.setLevel(logging.INFO)
+    try:
+        handler = logging.FileHandler(log_path)
+    except OSError as exc:
+        print("%s: cannot open log %s (%s) — continuing without it"
+              % (PROGRAM, log_path, exc), file=sys.stderr)
         return False
-
-    def get_installed_versions(self, directory):
-        """Retrieve the currently installed plugins or themes and their versions."""
-        items = {}
-        for item in os.listdir(directory):
-            git_path = os.path.join(directory, item, ".git")
-            if os.path.exists(git_path):
-                continue
-
-            plugin_path = os.path.join(directory, item)
-            readme_path = self.get_readme_file_path(plugin_path)
-            if readme_path:
-                version = "unknown"
-                with open(
-                    readme_path, "r", encoding="utf-8", errors="ignore"
-                ) as f:
-                    for line in f:
-                        if "Stable tag:" in line:
-                            version = line.split(":")[1].strip()
-                            break
-                items[item] = version
-
-        sorted_versions = {k: items[k] for k in sorted(items)}
-        return sorted_versions
-
-    def download_and_extract(self, zip_url, extract_to, plugin):
-        """Download and extract a ZIP file to the specified directory."""
-        zip_path = "/tmp/temp.zip"
-        response = requests.get(zip_url, stream=True)
-        if response.status_code == 200:
-            with open(zip_path, "wb") as f:
-                for chunk in response.iter_content(chunk_size=1024):
-                    f.write(chunk)
-            with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(extract_to)
-            os.remove(zip_path)
-            print(f"✅ Updated: {os.path.join(extract_to, plugin)}")
-        else:
-            print(f"❌ Failed to download: {zip_url}")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log.addHandler(handler)
+    return True
 
 
-class Plugin(Item):
-    def get_latest_item(self, name):
-        """Fetch the latest version information from the WordPress API."""
-        api_url = f"https://api.wordpress.org/plugins/info/1.0/{name}.json"
+def download_and_apply(link, directory, slug, latest, version_reader):
+    """Fetch the zip to a temp file, then hand off to apply_zip()."""
+    time.sleep(DOWNLOAD_THROTTLE)
+    fd, zip_path = tempfile.mkstemp(prefix="wp-update-", suffix=".zip")
+    os.close(fd)
+    try:
+        req = urllib.request.Request(link, headers={"User-Agent": USER_AGENT})
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as response, \
+                open(zip_path, "wb") as out:
+            shutil.copyfileobj(response, out)
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+        os.unlink(zip_path)
+        return FAILED_DOWNLOAD, "%s: %s" % (link, exc)
 
-        response = requests.get(api_url)
-
-        if response.status_code == 200:
-            return response.json()
-
-        print(
-            f"⚠️  API request failed for {name}: {response.status_code} {response.reason}"
-        )
-
-        print(response.text)
-        return None
-
-
-class Theme(Item):
-    def get_latest_item(self, name):
-        """Fetch the latest version information."""
-        headers = {"User-Agent": "Mozilla/5.0"}
-        repo_url = f"https://wordpress.org/themes/{name}"
+    try:
+        return apply_zip(zip_path, directory, slug, latest, version_reader)
+    finally:
         try:
-            response = requests.get(repo_url, headers=headers)
-            soup = BeautifulSoup(response.text, "html.parser")
-            download_link = soup.select_one(
-                "#wporg-theme-button-download"
-            ).attrs["href"]
-            version = soup.select_one(
-                ".is-meta-version span:nth-child(2)"
-            ).text
-
-            return {"version": version, "download_link": download_link}
-        except:
-            print(
-                f"⚠️  API request failed for {name}: {response.status_code} {response.reason}"
-            )
-
-        return None
+            os.unlink(zip_path)
+        except OSError:
+            pass
 
 
-class App:
-    ITEM_CLASSES = {"plugin": Plugin, "theme": Theme}
+def process_store(directory, kind, excluded, version_reader, lookup, dry_run):
+    """Walk one store directory and return a Result for every item in it."""
+    results = []
+    for slug in sorted(os.listdir(directory)):
+        path = os.path.join(directory, slug)
+        if not os.path.isdir(path) or slug.startswith("."):
+            continue
 
-    @classmethod
-    def execute(cls, item, directory, excluded_items):
-        if item not in cls.ITEM_CLASSES:
-            raise ValueError(
-                f"Invalid item: '{item}'. Valid options are {', '.join(cls.ITEM_CLASSES.keys())}."
-            )
+        result = classify_item(directory, slug, kind, excluded, version_reader)
+        if result.outcome is not None:
+            log.info("%s %s: %s (%s)", kind, slug, result.outcome, result.detail)
+            results.append(result)
+            continue
 
-        item_obj = getattr(cls.ITEM_CLASSES[item](), "update")
-        return item_obj(directory, excluded_items)
+        # One try/except per item: a single failure can never abort the run.
+        try:
+            # Unconditional, and before the lookup. The old script slept only
+            # after a SUCCESSFUL lookup, so under rate limiting it stopped
+            # backing off and started hammering.
+            time.sleep(LOOKUP_THROTTLE)
+            latest, link = lookup(slug)
+            result.latest = latest
+
+            decision = compare_versions(latest, result.installed)
+            if decision == "invalid":
+                result.outcome = UNKNOWN_VERSION
+                result.detail = ("cannot compare installed=%r with latest=%r"
+                                 % (result.installed, latest))
+            elif decision == "not-newer":
+                result.outcome = CURRENT
+                result.detail = result.installed
+            elif dry_run:
+                result.outcome = UPDATED
+                result.detail = "WOULD UPDATE %s → %s" % (result.installed, latest)
+            else:
+                result.outcome, result.detail = download_and_apply(
+                    link, directory, slug, latest, version_reader)
+
+        except NotOnWpOrg:
+            result.outcome = NOT_ON_WPORG
+            result.detail = "not published on wordpress.org"
+        except LookupFailed as exc:
+            result.outcome = FAILED_LOOKUP
+            result.detail = str(exc)
+        except Exception as exc:                      # noqa: BLE001 — never abort
+            result.outcome = FAILED_LOOKUP
+            result.detail = "unexpected %s: %s" % (type(exc).__name__, exc)
+
+        log.info("%s %s: %s (%s)", kind, slug, result.outcome, result.detail)
+        results.append(result)
+    return results
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Update the shared WordPress plugin and theme store.")
+    parser.add_argument("--plugins-dir", default=PLUGIN_DIR)
+    parser.add_argument("--themes-dir", default=THEME_DIR)
+    parser.add_argument("--log", default=DEFAULT_LOG)
+    parser.add_argument("--dry-run", action="store_true",
+                        help="look up and decide, but download and write nothing")
+    args = parser.parse_args()
+
+    for directory in (args.plugins_dir, args.themes_dir):
+        if not os.path.isdir(directory):
+            print("%s: FATAL — store directory not found: %s" % (PROGRAM, directory),
+                  file=sys.stderr)
+            return 2
+
+    setup_logging(args.log)
+    log.info("=== run start (dry_run=%s) ===", args.dry_run)
+
+    try:
+        results = process_store(args.plugins_dir, "plugin", EXCLUDED_PLUGINS,
+                                installed_plugin_version, latest_plugin, args.dry_run)
+        results += process_store(args.themes_dir, "theme", EXCLUDED_THEMES,
+                                 installed_theme_version, latest_theme, args.dry_run)
+    except Exception as exc:                          # noqa: BLE001
+        log.exception("fatal")
+        print("%s: FATAL — %s: %s" % (PROGRAM, type(exc).__name__, exc), file=sys.stderr)
+        return 2
+
+    print(render(results, args.log))
+    text, code = verdict(results)
+    log.info("=== run end: %s (exit %d) ===", text, code)
+    return code
 
 
 if __name__ == "__main__":
-    print("🔄 Updating plugins...")
-    App.execute("plugin", PLUGIN_DIR, EXCLUDED_PLUGINS)
-
-    print("🔄 Updating themes...")
-    App.execute("theme", THEME_DIR, EXCLUDED_THEMES)
+    sys.exit(main())
