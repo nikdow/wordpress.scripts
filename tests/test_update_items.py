@@ -57,3 +57,34 @@ class TestInstalledThemeVersion:
     def test_returns_none_without_style_css(self, make_theme):
         path = make_theme("brokentheme", version=None)
         assert ui.installed_theme_version(path) is None
+
+
+class TestCompareVersions:
+    def test_newer(self):
+        assert ui.compare_versions("9.2.0", "9.1.0") == "newer"
+
+    def test_not_newer_when_equal(self):
+        assert ui.compare_versions("9.1.0", "9.1.0") == "not-newer"
+
+    def test_not_newer_when_local_ahead(self):
+        assert ui.compare_versions("9.1.0", "9.2.0") == "not-newer"
+
+    def test_handles_pep440_suffixes(self):
+        assert ui.compare_versions("1.2.0", "1.2.0-beta1") == "newer"
+
+    def test_trunk_on_either_side_is_newer_when_different(self):
+        assert ui.compare_versions("trunk", "1.0.0") == "newer"
+        assert ui.compare_versions("1.0.0", "trunk") == "newer"
+
+    def test_trunk_on_both_sides_is_not_newer(self):
+        assert ui.compare_versions("trunk", "trunk") == "not-newer"
+
+    def test_invalid_current(self):
+        assert ui.compare_versions("1.0.0", "unknown") == "invalid"
+
+    def test_invalid_latest(self):
+        assert ui.compare_versions("not-a-version", "1.0.0") == "invalid"
+
+    def test_none_is_invalid(self):
+        assert ui.compare_versions("1.0.0", None) == "invalid"
+        assert ui.compare_versions(None, "1.0.0") == "invalid"

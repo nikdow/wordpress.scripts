@@ -4,7 +4,7 @@ import re
 import requests
 from time import sleep
 import zipfile
-from packaging.version import Version
+from packaging.version import InvalidVersion, Version
 from abc import ABC, abstractmethod
 from bs4 import BeautifulSoup
 
@@ -58,6 +58,23 @@ def installed_plugin_version(plugin_path):
 def installed_theme_version(theme_path):
     style = os.path.join(theme_path, "style.css")
     return read_header(style, "Version") if os.path.isfile(style) else None
+
+
+def compare_versions(latest, current):
+    """Return "newer", "not-newer", or "invalid".
+
+    "invalid" means a version string could not be parsed — the caller reports
+    which side was bad. The old script collapsed this into a message that always
+    blamed `latest_version` even when `current_version` was the malformed one.
+    """
+    if not latest or not current:
+        return "invalid"
+    if "trunk" in (latest, current):
+        return "newer" if latest != current else "not-newer"
+    try:
+        return "newer" if Version(latest) > Version(current) else "not-newer"
+    except InvalidVersion:
+        return "invalid"
 
 
 PLUGIN_DIR = "/home/lamp/wordpress/plugins"
