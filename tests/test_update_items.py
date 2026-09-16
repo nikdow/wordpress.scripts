@@ -210,6 +210,26 @@ class TestFetchJson:
             ui.fetch_json("http://x")
         assert len(calls) == 1
 
+    def test_400_raises_not_on_wporg(self, monkeypatch):
+        # A dotted directory name (thim-core.bak, revslider6.7) makes the API
+        # path malformed and wp.org answers 400, not 404.
+        def boom(url, timeout):
+            raise http_error(400)
+        monkeypatch.setattr(ui, "_urlopen_json", boom)
+        with pytest.raises(ui.NotOnWpOrg):
+            ui.fetch_json("http://x")
+
+    def test_400_does_not_retry(self, monkeypatch):
+        calls, slept = [], []
+        def boom(url, timeout):
+            calls.append(1)
+            raise http_error(400)
+        monkeypatch.setattr(ui, "_urlopen_json", boom)
+        with pytest.raises(ui.NotOnWpOrg):
+            ui.fetch_json("http://x", sleeper=slept.append)
+        assert len(calls) == 1
+        assert slept == [], "a 400 must not burn 80s of backoff"
+
     def test_429_retries_then_fails(self, monkeypatch):
         calls, slept = [], []
         def boom(url, timeout):

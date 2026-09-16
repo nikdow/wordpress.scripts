@@ -206,7 +206,13 @@ def fetch_json(url, *, attempts=3, sleeper=time.sleep):
         try:
             return _urlopen_json(url, HTTP_TIMEOUT)
         except urllib.error.HTTPError as exc:
-            if exc.code == 404:
+            # 404 = a valid slug that is not in the directory.
+            # 400 = wp.org rejects the slug outright, which is what a dotted
+            #       directory name produces (thim-core.bak, revslider6.7) —
+            #       the dot makes the API path malformed.
+            # Neither answer changes on retry, so fail fast rather than
+            # spending 80s of backoff to be told the same thing.
+            if exc.code in (400, 404):
                 raise NotOnWpOrg(url) from exc
             last = exc
             if exc.code == 429:
@@ -327,6 +333,10 @@ EXCLUDED_PLUGINS = [
     "newsletter-extensions",
     "pmpro-add-member-admin",
     "newsletter-reports",
+    "revslider6.7",
+    "membero-allow-empty-email",
+    "membero-no-user-enumeration",
+    "getmeeting",
 ]
 
 # List premium themes to exclude
@@ -336,6 +346,7 @@ EXCLUDED_THEMES = [
     "documentation-suburbia-child",
     "jolene",
     "sailing3",
+    "sailing4",
     "sailing3.old",
     "salient",
     "salient10.5",
