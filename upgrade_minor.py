@@ -2,11 +2,12 @@
 #
 # Upgrade WP core to the latest minor version
 #
-# This script started failing because WP imposed timed limits
-# function is replaced by composer johnpbloch/wordpress-core
-# see cron job cd /home/lamp/wordpress && su composer -c "composer update"
+# Runs from root cron on aws05 (30 6,18 * * *). Each wpX.Y dir in /home/lamp/wordpress/core
+# gets the newest release of its own branch. An earlier note said composer
+# (johnpbloch/wordpress-core) replaced this, but in Oct 2026 it was still the job keeping wp7.0/wp7.1 current.
 #
-# need to handle major version upgrades by hand (e.g. 7.0 -> 7.1)
+# need to handle major version upgrades by hand (e.g. 7.0 -> 7.1): a new major is
+# downloaded into its own wpX.Y dir, moving sites onto it is manual
 #
 
 import re
@@ -44,14 +45,14 @@ def getLatestTags():
     return [a.get('href').replace('/', '') for a in soup.find_all('a')]
 
 
-def getLatestReleases():
+def getLatestReleases(section='latest'):
     releases = []
     conn = http.client.HTTPSConnection("wordpress.org", 443)
     conn.request("GET", "/download/releases/")
     html_doc = conn.getresponse().read().decode("utf-8")
     soup = BeautifulSoup(html_doc, 'html.parser')
 
-    for table in soup.find_all('div', id='latest'):
+    for table in soup.find_all('div', id=section):
         table = table.find('tbody')
         for tr in table.find_all('tr'):
             if tr is None:
@@ -72,6 +73,13 @@ def toMajorVersion(curVersion):
 
 
 def getLatestMinorRelease(curVersion):
+    # newest release in our own branch first (e.g. 7.0.4 -> 7.0.7), the "latest" table only lists the newest branch
+    branch = 'branch-' + toMajorVersion(curVersion).replace('.', '')
+    newer = [tag for tag in getLatestReleases(branch)
+             if re.match(r'^\d+(\.\d+)*$', tag[0]) and Version(tag[0]) > Version(curVersion)]
+    if newer:
+        return max(newer, key=lambda tag: Version(tag[0]))
+
     for tag in getLatestReleases():
         m = re.match(b'^\d+[\d.]*', tag[0].encode("utf-8"))
         if m is None:
@@ -152,6 +160,15 @@ def upgradeWpDir(dir):
         print(output)
         exit(1)
 
+    # getssl writes ACME challenges here, keep it so cert renewals don't depend on recreating it
+    if os.path.isdir(os.path.join(dir, '.well-known')):
+        print('Copying .well-known ...')
+        status, output = subprocess.getstatusoutput("cp -a %s/.well-known %s/.well-known" % (dir, target))
+        if status:
+            print('Failed to copy: .well-known')
+            print(output)
+            exit(1)
+
     print('Chown ...')
     status, output = subprocess.getstatusoutput("chown -R root:root %s" % target)
     if status:
@@ -198,9 +215,19 @@ def upgradeWpDir(dir):
 
     subprocess.getstatusoutput("rm -rf *.tar.gz")
 
-    cmd = "service php8.3-fpm reload"
-    print(cmd)
-    subprocess.getstatusoutput(cmd)
+    # reload whichever php-fpm versions are running, so a PHP upgrade doesn't leave a stale name here
+    status, output = subprocess.getstatusoutput(
+        "systemctl list-units --type=service --state=active --plain --no-legend 'php*-fpm.service'")
+    units = [line.split()[0] for line in output.splitlines() if line.strip()] if not status else []
+    if not units:
+        print('No active php-fpm service found to reload')
+    for unit in units:
+        cmd = "systemctl reload %s" % unit
+        print(cmd)
+        status, output = subprocess.getstatusoutput(cmd)
+        if status:
+            print('Failed to reload %s' % unit)
+            print(output)
 
 
 coreDir = "/home/lamp/wordpress/core"
